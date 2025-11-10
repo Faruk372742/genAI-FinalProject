@@ -2,6 +2,33 @@ import streamlit as st
 from streamlit_searchbox import st_searchbox
 from openai import OpenAI
 import json
+import requests
+import os
+
+if 'selected_styles' not in st.session_state:
+    st.session_state.selected_styles = []
+
+styles = [
+    "🎨 Abstract",
+    "🖼️ Realistic",
+    "🌈 Pop Art",
+    "🎭 Surrealism",
+    "✨ Impressionism",
+    "🏛️ Classical",
+    "🌸 Anime",
+    "💎 Art Deco",
+    "🎪 Cubism",
+    "🌙 Minimalist",
+    "🔥 Expressionism",
+    "🌊 Watercolor",
+    "✏️ Sketch",
+    "🎬 Cinematic",
+    "🌌 Cyberpunk",
+    "🏞️ Landscape",
+    "👤 Portrait",
+    "🎃 Gothic"
+]
+
 
 try:
     api_key = st.secrets["OPENAI_API_KEY"]
@@ -108,6 +135,44 @@ if selected_country:
     country_name = selected_country.split(" ", 1)[1] if " " in selected_country else selected_country
 
 
+cols = st.columns(3)
+for idx, style in enumerate(styles):
+    col = cols[idx % 3]
+    
+    with col:
+        # Check if style is selected
+        is_selected = style in st.session_state.selected_styles
+        
+        # Create button with different styling based on selection
+        if is_selected:
+            button_type = "primary"
+            label = f"✓ {style}"
+        else:
+            button_type = "secondary"
+            label = style
+        
+        # Handle button click
+        if st.button(label, key=f"btn_{idx}", type=button_type, use_container_width=True):
+            if is_selected:
+                # Deselect if already selected
+                st.session_state.selected_styles.remove(style)
+            else:
+                # Select if under limit
+                if len(st.session_state.selected_styles) < 3:
+                    st.session_state.selected_styles.append(style)
+                #else:
+                #    st.warning("Maximum 3 styles allowed! Deselect one first.")
+            st.rerun()
+
+
+
+clean_styles = [style.split(' ', 1)[1] for style in st.session_state.selected_styles]
+
+styles_string = ', '.join(clean_styles) #selected styles for image generation. 
+
+first_event_description = ""
+
+
 
 if selected_country != None and st.button("Find Important Events", type="primary"):
     with st.spinner(f"Searching for today's important events in {selected_country}..."):
@@ -169,6 +234,9 @@ if selected_country != None and st.button("Find Important Events", type="primary
                     with st.container():
                         st.subheader(f"📌 Event {i}")
                         st.markdown(f"**{event['title']}**")
+                        if i == 1:
+                            first_event_description = event['description']
+
                         st.write(event['description'])
                         
                         if i < len(events):
@@ -185,3 +253,117 @@ if selected_country != None and st.button("Find Important Events", type="primary
         except Exception as e:
             st.error(f"An error occurred: {str(e)}")
             st.info("Make sure your OpenAI API key is set in Streamlit secrets and has access to GPT-4o with web search.")
+
+
+
+count = len(st.session_state.selected_styles)
+gpt_image_description_prompt = ""
+if count >= 1 and first_event_description != "":
+    with st.spinner(f"Generating the image for the first event"):
+        try:
+                    # Make API request with web search
+            print("Debug POINT ---- -- ---- ----")
+            response = client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {
+                        "role": "user",
+                        "content": f"""Generate a prompt for image generation about the description {first_event_description} and by using the styles of {styles_string}
+                        Return the prompt as a string, not in the other format"""
+                    }
+                ],
+            )
+            
+            # Extract the response content
+            result = response.choices[0].message.content
+            gpt_image_description_prompt = result
+            
+
+            JIGSAWSTACK_API_KEY = os.getenv("JIGSAWSTACK_API_KEY") or st.secrets.get("JIGSAWSTACK_API_KEY", "")
+
+# Fixed settings
+            size = "512x512"
+            n_images = 1
+
+
+            # Main content
+            description = gpt_image_description_prompt
+            print("Description", description)
+
+            if not JIGSAWSTACK_API_KEY:
+                st.error("⚠️ Please provide your JigsawStack API key in the sidebar")
+            elif not description:
+                st.warning("⚠️ Please enter a description")
+            else:
+                with st.spinner("✨ Generating your image..."):
+                    try:
+                        # JigsawStack API endpoint
+                        url = "https://api.jigsawstack.com/v1/ai/image_generation"
+                        
+                        headers = {
+                            "Content-Type": "application/json",
+                            "x-api-key": JIGSAWSTACK_API_KEY
+                        }
+                        
+                        payload = {
+                            "prompt": description,
+                            "size": size,
+                            "n": n_images
+                        }
+                        
+                        # Make API request
+                        response = requests.post(url, json=payload, headers=headers)
+                        
+                        if response.status_code == 200:
+                            # Check if response is an image
+                            content_type = response.headers.get('Content-Type', '')
+                            
+                            if 'image' in content_type or response.content.startswith(b'\x89PNG'):
+                                # Response is a PNG image
+                                st.success("✅ Image generated successfully!")
+                                st.image(response.content, caption="Generated Image", use_container_width=True)
+                            else:
+                                # Try to parse as JSON
+                                try:
+                                    result = response.json()
+                                    
+                                    # Display generated image
+                                    if "data" in result and len(result["data"]) > 0:
+                                        image_data = result["data"][0]
+                                        
+                                        # If URL is provided
+                                        if "url" in image_data:
+                                            st.image(image_data["url"], caption="Generated Image", use_container_width=True)
+                                        # If base64 is provided
+                                        elif "b64_json" in image_data:
+                                            import base64
+                                            img_bytes = base64.b64decode(image_data["b64_json"])
+                                            st.image(img_bytes, caption="Generated Image", use_container_width=True)
+                                    else:
+                                        st.error("Unexpected response format from API")
+                                        st.json(result)
+                                except requests.exceptions.JSONDecodeError:
+                                    st.error("Failed to parse API response")
+                                    st.text("Raw response:")
+                                    st.code(response.text[:500])  # Show first 500 chars
+                                
+                        else:
+                            st.error(f"❌ API Error: {response.status_code}")
+                            st.text("Response:")
+                            st.code(response.text)
+                                
+                    except Exception as e:
+                        st.error(f"❌ An error occurred: {str(e)}")
+                            
+        except Exception as e:
+            st.error(f"An error occurred: {str(e)}")
+            st.info("Make sure your OpenAI API key is set in Streamlit secrets and has access to GPT-4o-mini.")
+
+
+
+
+
+
+
+
+
