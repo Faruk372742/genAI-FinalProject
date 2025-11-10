@@ -1,5 +1,19 @@
 import streamlit as st
 from streamlit_searchbox import st_searchbox
+from openai import OpenAI
+import json
+
+try:
+    api_key = st.secrets["OPENAI_API_KEY"]
+except:
+    import os
+    api_key = os.getenv("OPENAI_API_KEY")
+    
+if not api_key:
+    st.error("⚠️ OpenAI API key not found! Please set it in secrets.toml or as an environment variable.")
+    st.stop()
+
+client = OpenAI(api_key=api_key)
 
 # Comprehensive list of countries with their flag emojis
 COUNTRIES = [
@@ -74,7 +88,6 @@ def search_countries(searchterm: str):
 
 # Streamlit app
 st.title("Event Finder 🔍")
-#st.markdown("Search and select your country from the list below")
 
 # Create searchbox
 default_options = [f"{flag} {name}" for flag, name in COUNTRIES[:20]]
@@ -84,7 +97,6 @@ selected_country = st_searchbox(
     placeholder="Search for a country...",
     label="🌍 Select your country:",
     clear_on_submit=False,
-    #clearable=True,
     default_options=default_options
 )
 
@@ -94,5 +106,82 @@ if selected_country:
     
     # Extract just the country name (without flag)
     country_name = selected_country.split(" ", 1)[1] if " " in selected_country else selected_country
-    #st.info(f"Country name: {country_name}")
 
+
+
+if selected_country != None and st.button("Find Important Events", type="primary"):
+    with st.spinner(f"Searching for today's important events in {selected_country}..."):
+        try:
+            # Make API request with web search
+            response = client.chat.completions.create(
+                model="gpt-4o-mini-search-preview",
+                web_search_options={},
+                messages=[
+                    {
+                        "role": "user",
+                        "content": f"""Find the 3 most today's important events in {selected_country}. 
+                        For each event, provide:
+                        1. A clear title
+                        2. A detailed description (2-3 sentences, max 30 words)
+                        
+                        IMPORTANT: Write ALL descriptions in the official language of {selected_country}.
+                        
+                        Return the response as a JSON array with this structure:
+                        [
+                            {{
+                                "title": "Event title in official language",
+                                "description": "Detailed description in official language"
+                            }}
+                        ]
+                        
+                        Return ONLY the JSON array, no other text."""
+                    }
+                ],
+            )
+            
+            # Extract the response content
+            result = response.choices[0].message.content
+            
+            # Parse JSON response
+            try:
+    # Remove markdown code blocks
+                cleaned_result = result.strip()
+                
+                # Remove ```json and ``` markers
+                if cleaned_result.startswith("```json"):
+                    cleaned_result = cleaned_result[7:]  # Remove ```json
+                elif cleaned_result.startswith("```"):
+                    cleaned_result = cleaned_result[3:]   # Remove ```
+                
+                if cleaned_result.endswith("```"):
+                    cleaned_result = cleaned_result[:-3]  # Remove trailing ```
+                
+                cleaned_result = cleaned_result.strip()  # Remove any extra whitespace
+                
+                # Now parse the JSON
+                events = json.loads(cleaned_result)
+                
+                st.success(f"✅ Found important events in {selected_country}")
+                st.divider()
+                
+                # Display events
+                for i, event in enumerate(events, 1):
+                    with st.container():
+                        st.subheader(f"📌 Event {i}")
+                        st.markdown(f"**{event['title']}**")
+                        st.write(event['description'])
+                        
+                        if i < len(events):
+                            st.divider()
+                            
+            except json.JSONDecodeError as e:
+                st.error(f"JSON Parse Error: {str(e)}")
+                st.warning("Could not parse structured response. Showing raw results:")
+                st.code(result)
+                
+            except Exception as e:
+                st.error(f"An error occurred: {str(e)}")
+                
+        except Exception as e:
+            st.error(f"An error occurred: {str(e)}")
+            st.info("Make sure your OpenAI API key is set in Streamlit secrets and has access to GPT-4o with web search.")
