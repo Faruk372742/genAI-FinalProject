@@ -6,7 +6,6 @@ import requests
 import os
 from streamlit_extras.stylable_container import stylable_container
 
-
 if 'selected_styles' not in st.session_state:
     st.session_state.selected_styles = []
 
@@ -284,7 +283,7 @@ if count >= 1 and first_event_description != "":
                     {
                         "role": "user",
                         "content": f"""Generate a prompt for image generation about the description {first_event_description} and by using the styles of {styles_string}
-                        Return the prompt as a string, not in the other format, the max length must be 80 words"""
+                        Return the prompt as a string, not in the other format"""
                     }
                 ],
             )
@@ -292,11 +291,12 @@ if count >= 1 and first_event_description != "":
             # Extract the response content
             result = response.choices[0].message.content
             gpt_image_description_prompt = result
+
+
             
 
             JIGSAWSTACK_API_KEY = os.getenv("JIGSAWSTACK_API_KEY") or st.secrets.get("JIGSAWSTACK_API_KEY", "")
 
-# Fixed settings
             size = "216x216"
             n_images = 1
 
@@ -368,6 +368,7 @@ if count >= 1 and first_event_description != "":
                                 
                     except Exception as e:
                         st.error(f"❌ An error occurred: {str(e)}")
+                    
                             
         except Exception as e:
             st.error(f"An error occurred: {str(e)}")
