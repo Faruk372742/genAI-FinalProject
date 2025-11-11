@@ -5,6 +5,8 @@ import json
 import requests
 import os
 from streamlit_extras.stylable_container import stylable_container
+from PIL import Image
+from io import BytesIO
 
 if 'selected_styles' not in st.session_state:
     st.session_state.selected_styles = []
@@ -152,7 +154,7 @@ if selected_country != None:
                 label = style
             
             # Handle button click
-            if st.button(label, key=f"btn_{idx}", type=button_type, use_container_width=True):
+            if st.button(label, key=f"btn_{idx}", type=button_type, width='stretch'):
                 if is_selected:
                     # Deselect if already selected
                     st.session_state.selected_styles.remove(style)
@@ -188,7 +190,7 @@ if selected_country != None and count>=1:
     }
     """
 ):
-        if st.button("Find Important Events", key="button_green", use_container_width=True):
+        if st.button("Find Important Events", key="button_green", width='stretch'):
             with st.spinner(f"Searching for today's important events in {selected_country}..."):
                 try:
                     # Make API request with web search
@@ -304,70 +306,113 @@ if count >= 1 and first_event_description != "":
             # Main content
             description = gpt_image_description_prompt
 
-            if not JIGSAWSTACK_API_KEY:
-                st.error("⚠️ Please provide your JigsawStack API key in the sidebar")
-            elif not description:
-                st.warning("⚠️ Please enter a description")
+            try:
+                api_key = st.secrets["CLIPDROP_API_KEY"]
+            except Exception as e:
+                st.error("API key not found in secrets. Please configure your secrets.toml file.")
+                api_key = None
+
+            prompt = description
+            if not api_key:
+                st.error("Please enter your Clipdrop API key")
+            elif not prompt:
+                st.error("Please enter a prompt")
             else:
-                with st.spinner("✨ Generating your image..."):
+                with st.spinner("Generating image..."):
                     try:
-                        # JigsawStack API endpoint
-                        url = "https://api.jigsawstack.com/v1/ai/image_generation"
+                        # Clipdrop API endpoint
+                        url = "https://clipdrop-api.co/text-to-image/v1"
                         
-                        headers = {
-                            "Content-Type": "application/json",
-                            "x-api-key": JIGSAWSTACK_API_KEY
-                        }
-                        
-                        payload = {
-                            "prompt": description,
-                            "size": size,
-                            "n": n_images
-                        }
-                        
-                        # Make API request
-                        response = requests.post(url, json=payload, headers=headers)
+                        # API request
+                        response = requests.post(
+                            url,
+                            files={
+                                'prompt': (None, prompt, 'text/plain')
+                            },
+                            headers={
+                                'x-api-key': api_key
+                            }
+                        )
                         
                         if response.status_code == 200:
-                            # Check if response is an image
-                            content_type = response.headers.get('Content-Type', '')
-                            
-                            if 'image' in content_type or response.content.startswith(b'\x89PNG'):
-                                # Response is a PNG image
-                                st.success("✅ Image generated successfully!")
-                                st.image(response.content, caption="Generated Image", use_container_width=True)
-                            else:
-                                # Try to parse as JSON
-                                try:
-                                    result = response.json()
-                                    
-                                    # Display generated image
-                                    if "data" in result and len(result["data"]) > 0:
-                                        image_data = result["data"][0]
-                                        
-                                        # If URL is provided
-                                        if "url" in image_data:
-                                            st.image(image_data["url"], caption="Generated Image", use_container_width=True)
-                                        # If base64 is provided
-                                        elif "b64_json" in image_data:
-                                            import base64
-                                            img_bytes = base64.b64decode(image_data["b64_json"])
-                                            st.image(img_bytes, caption="Generated Image", use_container_width=True)
-                                    else:
-                                        st.error("Unexpected response format from API")
-                                        st.json(result)
-                                except requests.exceptions.JSONDecodeError:
-                                    st.error("Failed to parse API response")
-                                    st.text("Raw response:")
-                                    st.code(response.text[:500])  # Show first 500 chars
-                                
+                            # Display the generated image
+                            image = Image.open(BytesIO(response.content))
+                            st.image(image, caption="Generated Image", width='stretch')
                         else:
-                            st.error(f"❌ API Error: {response.status_code}")
-                            st.text("Response:")
-                            st.code(response.text)
-                                
+                            st.error(f"Error: {response.status_code} - {response.text}")
+                            
                     except Exception as e:
-                        st.error(f"❌ An error occurred: {str(e)}")
+                        st.error(f"An error occurred: {str(e)}")
+
+
+
+            if False:
+            
+                if not JIGSAWSTACK_API_KEY:
+                    st.error("⚠️ Please provide your JigsawStack API key in the sidebar")
+                elif not description:
+                    st.warning("⚠️ Please enter a description")
+                else:
+                    with st.spinner("✨ Generating your image..."):
+                        try:
+                            # JigsawStack API endpoint
+                            url = "https://api.jigsawstack.com/v1/ai/image_generation"
+                            
+                            headers = {
+                                "Content-Type": "application/json",
+                                "x-api-key": JIGSAWSTACK_API_KEY
+                            }
+                            
+                            payload = {
+                                "prompt": description,
+                                "size": size,
+                                "n": n_images
+                            }
+                            
+                            # Make API request
+                            response = requests.post(url, json=payload, headers=headers)
+                            
+                            if response.status_code == 200:
+                                # Check if response is an image
+                                content_type = response.headers.get('Content-Type', '')
+                                
+                                if 'image' in content_type or response.content.startswith(b'\x89PNG'):
+                                    # Response is a PNG image
+                                    st.success("✅ Image generated successfully!")
+                                    st.image(response.content, caption="Generated Image", width='stretch')
+                                else:
+                                    # Try to parse as JSON
+                                    try:
+                                        result = response.json()
+                                        
+                                        # Display generated image
+                                        if "data" in result and len(result["data"]) > 0:
+                                            image_data = result["data"][0]
+                                            
+                                            # If URL is provided
+                                            if "url" in image_data:
+                                                st.image(image_data["url"], caption="Generated Image", width='stretch')
+                                            # If base64 is provided
+                                            elif "b64_json" in image_data:
+                                                import base64
+                                                img_bytes = base64.b64decode(image_data["b64_json"])
+                                                st.image(img_bytes, caption="Generated Image", width='stretch')
+                                        else:
+                                            st.error("Unexpected response format from API")
+                                            st.json(result)
+                                    except requests.exceptions.JSONDecodeError:
+                                        st.error("Failed to parse API response")
+                                        st.text("Raw response:")
+                                        st.code(response.text[:500])  # Show first 500 chars
+                                    
+                            else:
+                                st.error(f"❌ API Error: {response.status_code}")
+                                st.text("Response:")
+                                st.code(response.text)
+                                    
+                        except Exception as e:
+                            st.error(f"❌ An error occurred: {str(e)}")
+
                     
                             
         except Exception as e:
